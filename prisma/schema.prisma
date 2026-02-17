@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  preferences   String?   // JSON string for user preferences
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  tasks         Task[]
+  contexts      Context[]
+  taskTemplates TaskTemplate[]
+  dayLogs       DayLog[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id               String    @id @default(cuid())
+  title            String
+  description      String?
+  status           String    @default("inbox") // inbox, today, scheduled, backlog, done, cancelled
+  scheduledDate    DateTime?
+  deadline         DateTime?
+  estimatedMinutes Int?
+  sortOrder        Int       @default(0)
+  isRecurring      Boolean   @default(false)
+  recurringRule    String?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  contextId String
+  context   Context @relation(fields: [contextId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subtasks      Subtask[]
+  dayLogEntries DayLogEntry[]
+
+  @@index([userId, status])
+  @@index([userId, scheduledDate])
+  @@index([userId, contextId])
+}
+
+model Subtask {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  isDone      Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Context {
+  id         String   @id @default(cuid())
+  name       String
+  icon       String   @default("📋")
+  color      String   @default("#6B7280")
+  sortOrder  Int      @default(0)
+  isArchived Boolean  @default(false)
+  isSystem   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tasks             Task[]
+  taskTemplateItems TaskTemplateItem[]
+  dayLogEntries     DayLogEntry[]
+
+  @@index([userId, isArchived])
+}
+
+model TaskTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  icon      String   @default("📋")
+  color     String   @default("#6B7280")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  items TaskTemplateItem[]
+}
+
+model TaskTemplateItem {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+  sortOrder   Int     @default(0)
+
+  contextId  String
+  context    Context      @relation(fields: [contextId], references: [id])
+  templateId String
+  template   TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model DayLog {
+  id        String    @id @default(cuid())
+  date      DateTime
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  entries DayLogEntry[]
+
+  @@unique([date, userId])
+  @@index([userId, date])
+}
+
+model DayLogEntry {
+  id          String   @id @default(cuid())
+  signifier   String   @default("dot") // dot, done, migrated_forward, migrated_backlog, cancelled
+  sortOrder   Int      @default(0)
+  taskTitle   String
+  contextName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dayLogId  String
+  dayLog    DayLog   @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  contextId String?
+  context   Context? @relation(fields: [contextId], references: [id], onDelete: SetNull)
+
+  @@index([dayLogId, contextId])
+}
