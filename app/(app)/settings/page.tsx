@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -13,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SyncIndicator } from "@/components/layout/SyncIndicator";
 import {
   AlertDialog,
@@ -56,6 +58,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { setTheme } = useTheme();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [profile, setProfile] = useState<Profile>({ name: "", email: "" });
   const [isLoading, setIsLoading] = useState(true);
@@ -139,8 +142,23 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col gap-6 p-4 md:p-6 max-w-2xl">
+        <Skeleton className="h-8 w-48" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="border rounded-lg p-6 space-y-4">
+            <Skeleton className="h-5 w-32" />
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-8 w-40 rounded" />
+              </div>
+              <div className="flex justify-between items-center">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-5 w-10 rounded-full" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -178,9 +196,10 @@ export default function SettingsPage() {
             <span className="text-sm">Motiv</span>
             <Select
               value={settings.theme}
-              onValueChange={(value) =>
-                saveSettings({ theme: value as Settings["theme"] })
-              }
+              onValueChange={(value) => {
+                setTheme(value);
+                saveSettings({ theme: value as Settings["theme"] });
+              }}
             >
               <SelectTrigger className="w-40">
                 <SelectValue />

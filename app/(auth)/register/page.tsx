@@ -50,7 +50,7 @@ export default function RegisterPage() {
       if (result?.error) {
         setError("Registrace proběhla, ale přihlášení se nezdařilo");
       } else {
-        router.push("/today");
+        router.push("/onboarding");
       }
     } catch {
       setError("Něco se pokazilo");

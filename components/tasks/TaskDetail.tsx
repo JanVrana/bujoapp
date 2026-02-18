@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Repeat } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { TIME_ESTIMATE_OPTIONS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -36,6 +37,23 @@ interface TaskDetailData {
   isRecurring: boolean;
   recurringRule?: string | null;
   createdAt: string;
+}
+
+const RECURRENCE_OPTIONS = {
+  daily: "FREQ=DAILY",
+  weekdays: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+  weekly: "FREQ=WEEKLY",
+  biweekly: "FREQ=WEEKLY;INTERVAL=2",
+  monthly: "FREQ=MONTHLY",
+} as const;
+
+const RRULE_TO_KEY: Record<string, keyof typeof RECURRENCE_OPTIONS> = Object.fromEntries(
+  Object.entries(RECURRENCE_OPTIONS).map(([key, rule]) => [rule, key as keyof typeof RECURRENCE_OPTIONS])
+) as Record<string, keyof typeof RECURRENCE_OPTIONS>;
+
+function rruleToKey(rule: string | null): string {
+  if (!rule) return "daily";
+  return RRULE_TO_KEY[rule] ?? "daily";
 }
 
 export function TaskDetail({ taskId }: { taskId: string }) {
@@ -57,6 +75,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const [contextId, setContextId] = useState("");
   const [deadline, setDeadline] = useState<Date | undefined>();
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | undefined>();
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringRule, setRecurringRule] = useState<string | null>(null);
 
   useEffect(() => {
     if (task) {
@@ -65,6 +85,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       setContextId(task.contextId);
       setDeadline(task.deadline ? new Date(task.deadline) : undefined);
       setEstimatedMinutes(task.estimatedMinutes ?? undefined);
+      setIsRecurring(task.isRecurring);
+      setRecurringRule(task.recurringRule ?? null);
     }
   }, [task]);
 
@@ -184,6 +206,53 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                   </Button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <Label className="flex items-center gap-2">
+                <Repeat className="h-4 w-4" />
+                Opakování
+              </Label>
+              <div className="flex items-center gap-3 mt-1">
+                <Switch
+                  checked={isRecurring}
+                  onCheckedChange={(checked) => {
+                    setIsRecurring(checked);
+                    if (!checked) {
+                      setRecurringRule(null);
+                      updateTask.mutate({ id: taskId, isRecurring: false, recurringRule: null });
+                    } else {
+                      const defaultRule = "FREQ=DAILY";
+                      setRecurringRule(defaultRule);
+                      updateTask.mutate({ id: taskId, isRecurring: true, recurringRule: defaultRule });
+                    }
+                  }}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {isRecurring ? "Zapnuto" : "Vypnuto"}
+                </span>
+              </div>
+              {isRecurring && (
+                <Select
+                  value={rruleToKey(recurringRule)}
+                  onValueChange={(val) => {
+                    const rule = RECURRENCE_OPTIONS[val as keyof typeof RECURRENCE_OPTIONS];
+                    setRecurringRule(rule);
+                    updateTask.mutate({ id: taskId, isRecurring: true, recurringRule: rule });
+                  }}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Denně</SelectItem>
+                    <SelectItem value="weekdays">Pracovní dny</SelectItem>
+                    <SelectItem value="weekly">Týdně</SelectItem>
+                    <SelectItem value="biweekly">Každé 2 týdny</SelectItem>
+                    <SelectItem value="monthly">Měsíčně</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div>

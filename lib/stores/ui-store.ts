@@ -10,6 +10,7 @@ interface UIState {
   quickAddOpen: boolean;
   searchOpen: boolean;
   taskDetailId: string | null;
+  focusedTaskId: string | null;
 
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
@@ -19,6 +20,7 @@ interface UIState {
   setQuickAddOpen: (open: boolean) => void;
   setSearchOpen: (open: boolean) => void;
   setTaskDetailId: (id: string | null) => void;
+  setFocusedTaskId: (id: string | null) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -29,6 +31,7 @@ export const useUIStore = create<UIState>((set) => ({
   quickAddOpen: false,
   searchOpen: false,
   taskDetailId: null,
+  focusedTaskId: null,
 
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -38,4 +41,5 @@ export const useUIStore = create<UIState>((set) => ({
   setQuickAddOpen: (open) => set({ quickAddOpen: open }),
   setSearchOpen: (open) => set({ searchOpen: open }),
   setTaskDetailId: (id) => set({ taskDetailId: id }),
+  setFocusedTaskId: (id) => set({ focusedTaskId: id }),
 }));

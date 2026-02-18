@@ -1,12 +1,28 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useId } from "react";
 import { useTasks } from "@/lib/hooks/use-tasks";
+import { useUpdateTask } from "@/lib/hooks/use-tasks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskItem } from "@/components/tasks/TaskItem";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TaskItemSkeleton } from "@/components/tasks/TaskItemSkeleton";
 import { cs } from "date-fns/locale";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  useDroppable,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  useSortable,
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 function getNextDays(count: number): string[] {
   const days: string[] = [];
@@ -36,9 +52,104 @@ function formatDayLabel(dateStr: string): string {
   });
 }
 
+interface SortableTaskItemProps {
+  task: {
+    id: string;
+    title: string;
+    status: string;
+    context?: { name?: string; icon?: string; color?: string } | null;
+    deadline?: string | Date | null;
+    estimatedMinutes?: number | null;
+    subtasks?: { isDone: boolean }[];
+    createdAt: string | Date;
+  };
+}
+
+function SortableTaskItem({ task }: SortableTaskItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    cursor: "grab",
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <TaskItem
+        id={task.id}
+        title={task.title}
+        status={task.status}
+        contextName={task.context?.name}
+        contextIcon={task.context?.icon}
+        contextColor={task.context?.color}
+        deadline={
+          task.deadline ? new Date(task.deadline).toISOString() : null
+        }
+        estimatedMinutes={task.estimatedMinutes}
+        subtaskCount={task.subtasks?.length ?? 0}
+        subtaskDoneCount={
+          task.subtasks?.filter((s: { isDone: boolean }) => s.isDone).length ?? 0
+        }
+        createdAt={new Date(task.createdAt).toISOString()}
+      />
+    </div>
+  );
+}
+
+function DroppableDayColumn({
+  day,
+  tasks,
+}: {
+  day: string;
+  tasks: SortableTaskItemProps["task"][];
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: day });
+  const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
+
+  return (
+    <Card
+      ref={setNodeRef}
+      className={isOver ? "ring-2 ring-primary ring-offset-2" : ""}
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">
+          {formatDayLabel(day)}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">{day}</p>
+      </CardHeader>
+      <CardContent>
+        <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
+          {tasks.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2">
+              Žádné úkoly
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {tasks.map((task) => (
+                <SortableTaskItem key={task.id} task={task} />
+              ))}
+            </div>
+          )}
+        </SortableContext>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function UpcomingPage() {
   const [activeTab, setActiveTab] = useState("week");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const dndContextId = useId();
+  const updateTask = useUpdateTask();
 
   const next7Days = useMemo(() => getNextDays(7), []);
 
@@ -73,10 +184,44 @@ export default function UpcomingPage() {
       .map((d) => new Date(d + "T00:00:00"));
   }, [tasks]);
 
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+
+    const taskId = String(active.id);
+    const targetDate = String(over.id);
+
+    // Find which date this task currently belongs to
+    let sourceDate: string | null = null;
+    for (const day of next7Days) {
+      if (tasksByDate[day]?.some((t) => t.id === taskId)) {
+        sourceDate = day;
+        break;
+      }
+    }
+
+    // Only update if the task was moved to a different day
+    if (sourceDate && sourceDate !== targetDate && next7Days.includes(targetDate)) {
+      updateTask.mutate({
+        id: taskId,
+        scheduledDate: new Date(targetDate + "T00:00:00").toISOString(),
+      });
+    }
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col gap-6 p-4 md:p-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="border rounded-lg p-4 space-y-3">
+              <Skeleton className="h-5 w-20" />
+              <TaskItemSkeleton />
+              <TaskItemSkeleton />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -94,44 +239,22 @@ export default function UpcomingPage() {
         </TabsList>
 
         <TabsContent value="week" className="mt-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {next7Days.map((day) => (
-              <Card key={day}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    {formatDayLabel(day)}
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground">{day}</p>
-                </CardHeader>
-                <CardContent>
-                  {tasksByDate[day]?.length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-2">
-                      Žádné úkoly
-                    </p>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      {tasksByDate[day]?.map((task) => (
-                        <TaskItem
-                          key={task.id}
-                          id={task.id}
-                          title={task.title}
-                          status={task.status}
-                          contextName={task.context?.name}
-                          contextIcon={task.context?.icon}
-                          contextColor={task.context?.color}
-                          deadline={task.deadline ? new Date(task.deadline).toISOString() : null}
-                          estimatedMinutes={task.estimatedMinutes}
-                          subtaskCount={task.subtasks?.length ?? 0}
-                          subtaskDoneCount={task.subtasks?.filter((s: { isDone: boolean }) => s.isDone).length ?? 0}
-                          createdAt={new Date(task.createdAt).toISOString()}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <DndContext
+            id={dndContextId}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {next7Days.map((day) => (
+                <DroppableDayColumn
+                  key={day}
+                  day={day}
+                  tasks={tasksByDate[day] ?? []}
+                />
+              ))}
+            </div>
+            <DragOverlay />
+          </DndContext>
         </TabsContent>
 
         <TabsContent value="month" className="mt-4">

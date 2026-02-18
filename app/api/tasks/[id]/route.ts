@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized, notFound } from "@/lib/auth-helpers";
 import { getOrCreateTodayLog, createDayLogEntry } from "@/lib/daylog-helpers";
+import { RRule } from "rrule";
 
 export async function PATCH(
   req: NextRequest,
@@ -19,7 +20,7 @@ export async function PATCH(
   if (!task) return notFound();
 
   const body = await req.json();
-  const { title, description, contextId, deadline, estimatedMinutes, scheduledDate, status, sortOrder } = body;
+  const { title, description, contextId, deadline, estimatedMinutes, scheduledDate, status, sortOrder, isRecurring, recurringRule } = body;
 
   const updateData: any = {};
 
@@ -30,6 +31,8 @@ export async function PATCH(
   if (estimatedMinutes !== undefined) updateData.estimatedMinutes = estimatedMinutes;
   if (scheduledDate !== undefined) updateData.scheduledDate = scheduledDate ? new Date(scheduledDate) : null;
   if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
+  if (isRecurring !== undefined) updateData.isRecurring = isRecurring;
+  if (recurringRule !== undefined) updateData.recurringRule = recurringRule;
 
   if (status !== undefined) {
     updateData.status = status;
@@ -43,6 +46,31 @@ export async function PATCH(
         where: { dayLogId: todayLog.id, taskId: id },
         data: { signifier: "done" },
       });
+
+      // Generate next occurrence for recurring tasks
+      if (task.isRecurring && task.recurringRule) {
+        try {
+          const rrule = RRule.fromString(`DTSTART:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z\nRRULE:${task.recurringRule}`);
+          const nextDates = rrule.after(new Date());
+          const nextDate = nextDates ?? new Date();
+
+          await prisma.task.create({
+            data: {
+              title: task.title,
+              description: task.description,
+              contextId: task.contextId,
+              estimatedMinutes: task.estimatedMinutes,
+              isRecurring: true,
+              recurringRule: task.recurringRule,
+              status: "scheduled",
+              scheduledDate: nextDate,
+              userId: user.id,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to generate next recurring task:", e);
+        }
+      }
     }
 
     if (status === "today" && task.status !== "today") {

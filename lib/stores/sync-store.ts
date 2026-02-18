@@ -10,6 +10,8 @@ interface SyncState {
   setSyncing: (syncing: boolean) => void;
   setPendingOperationsCount: (count: number) => void;
   setLastSyncTimestamp: (timestamp: number) => void;
+  incrementPending: () => void;
+  decrementPending: () => void;
 }
 
 export const useSyncStore = create<SyncState>((set) => ({
@@ -22,4 +24,10 @@ export const useSyncStore = create<SyncState>((set) => ({
   setSyncing: (syncing) => set({ isSyncing: syncing }),
   setPendingOperationsCount: (count) => set({ pendingOperationsCount: count }),
   setLastSyncTimestamp: (timestamp) => set({ lastSyncTimestamp: timestamp }),
+  incrementPending: () =>
+    set((state) => ({ pendingOperationsCount: state.pendingOperationsCount + 1 })),
+  decrementPending: () =>
+    set((state) => ({
+      pendingOperationsCount: Math.max(0, state.pendingOperationsCount - 1),
+    })),
 }));

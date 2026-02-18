@@ -6,33 +6,55 @@ import { ContextTemplateSelector } from "./ContextTemplateSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCreateTask } from "@/lib/hooks/use-tasks";
+import { useCreateTask, useUpdateTask } from "@/lib/hooks/use-tasks";
 import { useConfetti } from "@/components/feedback/ConfettiAnimation";
+
+interface CreatedTask {
+  id: string;
+  title: string;
+}
 
 export function OnboardingFlow() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [taskTitle, setTaskTitle] = useState("");
+  const [createdTask, setCreatedTask] = useState<CreatedTask | null>(null);
   const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
   const fireConfetti = useConfetti();
 
   const handleAddTask = () => {
     if (!taskTitle.trim()) return;
     createTask.mutate(
-      { title: taskTitle.trim(), contextId: "", status: "inbox" },
-      { onSuccess: () => setStep(3) }
+      { title: taskTitle.trim(), contextId: "", status: "today" },
+      {
+        onSuccess: (data: any) => {
+          setCreatedTask({ id: data.id, title: data.title });
+          setStep(3);
+        },
+      }
     );
   };
 
-  const handleComplete = () => {
-    fireConfetti(true);
-    setTimeout(() => {
-      fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingCompleted: true }),
-      }).then(() => router.push("/today"));
-    }, 1500);
+  const handleCompleteTask = () => {
+    if (!createdTask) return;
+    updateTask.mutate(
+      { id: createdTask.id, status: "done" },
+      {
+        onSuccess: () => {
+          fireConfetti(true);
+          setStep(4);
+          // Save onboarding as completed and redirect
+          setTimeout(() => {
+            fetch("/api/settings", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ onboardingCompleted: true }),
+            }).then(() => router.push("/today"));
+          }, 1500);
+        },
+      }
+    );
   };
 
   return (
@@ -67,8 +89,8 @@ export function OnboardingFlow() {
                 placeholder="Můj první úkol..."
                 onKeyDown={(e) => e.key === "Enter" && handleAddTask()}
               />
-              <Button onClick={handleAddTask} disabled={!taskTitle.trim()} className="w-full">
-                Přidat
+              <Button onClick={handleAddTask} disabled={!taskTitle.trim() || createTask.isPending} className="w-full">
+                {createTask.isPending ? "Přidávám..." : "Přidat"}
               </Button>
             </div>
           )}
@@ -78,8 +100,8 @@ export function OnboardingFlow() {
               <p className="text-sm text-muted-foreground">
                 Klikněte na tlačítko a podívejte se co se stane!
               </p>
-              <Button size="lg" onClick={handleComplete} className="w-full">
-                Dokončit úkol ✕
+              <Button size="lg" onClick={handleCompleteTask} disabled={updateTask.isPending} className="w-full">
+                {updateTask.isPending ? "Dokončuji..." : "Dokončit úkol ✕"}
               </Button>
             </div>
           )}

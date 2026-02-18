@@ -7,9 +7,12 @@ import type { TaskWithSubtasks } from "@/lib/types";
 import { useContexts } from "@/lib/hooks/use-contexts";
 import { ProgressBar } from "@/components/feedback/ProgressBar";
 import { TaskContextGroup } from "@/components/tasks/TaskContextGroup";
+import { TaskFilters, filterTasksByDeadline, type DeadlineFilter } from "@/components/tasks/TaskFilters";
 import { FocusMode } from "@/components/focus/FocusMode";
 import { DayEndReview } from "@/components/daylog/DayEndReview";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TaskListSkeleton } from "@/components/tasks/TaskItemSkeleton";
 import { Focus, Sun, Plus } from "lucide-react";
 
 function getTodayISO(): string {
@@ -53,10 +56,16 @@ export default function TodayPage() {
 
   const [focusModeActive, setFocusModeActive] = useState(false);
   const [dayEndOpen, setDayEndOpen] = useState(false);
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
+
+  const filteredTasks = useMemo(
+    () => filterTasksByDeadline(tasks, deadlineFilter),
+    [tasks, deadlineFilter]
+  );
 
   const tasksByContext = useMemo(() => {
-    const grouped: Record<string, typeof tasks> = {};
-    for (const task of tasks) {
+    const grouped: Record<string, typeof filteredTasks> = {};
+    for (const task of filteredTasks) {
       const key = task.contextId ?? "uncategorized";
       if (!grouped[key]) {
         grouped[key] = [];
@@ -64,7 +73,7 @@ export default function TodayPage() {
       grouped[key].push(task);
     }
     return grouped;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   const completedCount = tasks.filter(
     (t) => t.status === "done" || t.status === "completed"
@@ -88,8 +97,10 @@ export default function TodayPage() {
 
   if (tasksLoading || contextsLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col gap-6 p-4 md:p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-2 w-full rounded" />
+        <TaskListSkeleton groups={3} />
       </div>
     );
   }
@@ -140,21 +151,26 @@ export default function TodayPage() {
         </div>
       </div>
 
+      {/* Deadline Filters */}
+      <TaskFilters deadlineFilter={deadlineFilter} onDeadlineFilterChange={setDeadlineFilter} />
+
       {/* Progress */}
       <ProgressBar completed={completedCount} total={totalCount} />
 
       {/* Tasks */}
-      {tasks.length === 0 ? (
+      {filteredTasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-muted-foreground text-lg mb-4">
-            Žádné úkoly na dnes
+            {deadlineFilter === "all" ? "Žádné úkoly na dnes" : "Žádné úkoly odpovídající filtru"}
           </p>
-          <Button asChild>
-            <a href="/backlog">
-              <Plus className="h-4 w-4 mr-1" />
-              Přidat úkol
-            </a>
-          </Button>
+          {deadlineFilter === "all" && (
+            <Button asChild>
+              <a href="/backlog">
+                <Plus className="h-4 w-4 mr-1" />
+                Přidat úkol
+              </a>
+            </Button>
+          )}
         </div>
       ) : (
         <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { DndContext, DragEndEvent, closestCenter } from "@dnd-kit/core";
 import { useTasks, useUpdateTask } from "@/lib/hooks/use-tasks";
 import { useContexts } from "@/lib/hooks/use-contexts";
 import { TaskContextGroup } from "@/components/tasks/TaskContextGroup";
+import { TaskFilters, filterTasksByDeadline, type DeadlineFilter } from "@/components/tasks/TaskFilters";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TaskListSkeleton } from "@/components/tasks/TaskItemSkeleton";
 import type { TaskWithSubtasks } from "@/lib/types";
 
 function mapTasksForGroup(tasks: TaskWithSubtasks[]) {
@@ -29,10 +32,16 @@ export default function BacklogPage() {
   });
   const { data: contexts = [], isLoading: contextsLoading } = useContexts();
   const updateTask = useUpdateTask();
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
+
+  const filteredTasks = useMemo(
+    () => filterTasksByDeadline(tasks, deadlineFilter),
+    [tasks, deadlineFilter]
+  );
 
   const tasksByContext = useMemo(() => {
-    const grouped: Record<string, typeof tasks> = {};
-    for (const task of tasks) {
+    const grouped: Record<string, typeof filteredTasks> = {};
+    for (const task of filteredTasks) {
       const key = task.contextId ?? "uncategorized";
       if (!grouped[key]) {
         grouped[key] = [];
@@ -40,7 +49,7 @@ export default function BacklogPage() {
       grouped[key].push(task);
     }
     return grouped;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -59,8 +68,10 @@ export default function BacklogPage() {
 
   if (tasksLoading || contextsLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col gap-6 p-4 md:p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-24" />
+        <TaskListSkeleton groups={3} />
       </div>
     );
   }
@@ -75,11 +86,14 @@ export default function BacklogPage() {
         </p>
       </div>
 
+      {/* Deadline Filters */}
+      <TaskFilters deadlineFilter={deadlineFilter} onDeadlineFilterChange={setDeadlineFilter} />
+
       {/* Tasks */}
-      {tasks.length === 0 ? (
+      {filteredTasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-muted-foreground text-lg">
-            Backlog je prázdný
+            {deadlineFilter === "all" ? "Backlog je prázdný" : "Žádné úkoly odpovídající filtru"}
           </p>
         </div>
       ) : (

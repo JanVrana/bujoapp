@@ -13,15 +13,24 @@ interface ContextTemplateSelectorProps {
 export function ContextTemplateSelector({ onComplete }: ContextTemplateSelectorProps) {
   const createContext = useCreateContext();
   const [creating, setCreating] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<keyof typeof CONTEXT_PRESETS | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSelect = async (presetKey: keyof typeof CONTEXT_PRESETS) => {
     setCreating(true);
+    setSelectedPreset(presetKey);
+    setError(null);
     const preset = CONTEXT_PRESETS[presetKey];
-    for (const ctx of preset.contexts) {
-      await createContext.mutateAsync(ctx);
+    try {
+      for (const ctx of preset.contexts) {
+        await createContext.mutateAsync(ctx);
+      }
+      onComplete();
+    } catch {
+      setError("Nepodařilo se vytvořit kontexty. Zkuste to znovu.");
+      setCreating(false);
+      setSelectedPreset(null);
     }
-    setCreating(false);
-    onComplete();
   };
 
   return (
@@ -29,8 +38,10 @@ export function ContextTemplateSelector({ onComplete }: ContextTemplateSelectorP
       {Object.entries(CONTEXT_PRESETS).map(([key, preset]) => (
         <Card
           key={key}
-          className="cursor-pointer hover:bg-accent/50 transition-colors"
-          onClick={() => handleSelect(key as keyof typeof CONTEXT_PRESETS)}
+          className={`cursor-pointer hover:bg-accent/50 transition-colors ${
+            creating ? "pointer-events-none opacity-60" : ""
+          } ${selectedPreset === key ? "ring-2 ring-primary" : ""}`}
+          onClick={() => !creating && handleSelect(key as keyof typeof CONTEXT_PRESETS)}
         >
           <CardContent className="p-3">
             <p className="font-medium text-sm">{preset.name}</p>
@@ -44,6 +55,14 @@ export function ContextTemplateSelector({ onComplete }: ContextTemplateSelectorP
           </CardContent>
         </Card>
       ))}
+
+      {error && (
+        <p className="text-sm text-red-500 text-center">{error}</p>
+      )}
+
+      {creating && (
+        <p className="text-sm text-muted-foreground text-center">Vytvářím kontexty...</p>
+      )}
 
       <Button variant="ghost" className="w-full" onClick={onComplete} disabled={creating}>
         Přeskočit

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { SignifierIcon } from "@/components/daylog/SignifierIcon";
 import { ContextBadge } from "@/components/contexts/ContextBadge";
@@ -17,6 +18,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { MoreHorizontal, Check, ArrowRight, Archive, X, Clock, AlertCircle } from "lucide-react";
 import type { Signifier } from "@/lib/types";
+
+function triggerHaptic(pattern: number | number[] = 50) {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(pattern);
+  }
+}
 
 interface TaskItemProps {
   id: string;
@@ -70,6 +77,8 @@ export function TaskItem({
   onComplete,
 }: TaskItemProps) {
   const setTaskDetailId = useUIStore((s) => s.setTaskDetailId);
+  const focusedTaskId = useUIStore((s) => s.focusedTaskId);
+  const setFocusedTaskId = useUIStore((s) => s.setFocusedTaskId);
   const updateTask = useUpdateTask();
   const fireConfetti = useConfetti();
   const showEncouragement = useEncouragingToast();
@@ -80,11 +89,60 @@ export function TaskItem({
   const isCancelled = signifier === "cancelled" || status === "cancelled";
   const ageColor = createdAt ? getAgeColor(createdAt) : null;
 
-  const handleComplete = () => {
+  // Swipe gesture state
+  const [swipeX, setSwipeX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [showSwipeActions, setShowSwipeActions] = useState(false);
+  const touchStartX = useRef<number>(0);
+  const touchStartY = useRef<number>(0);
+  const hasHapticked = useRef(false);
+  const swipeEnabled = !isDone && !isCancelled;
+
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!swipeEnabled) return;
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+      hasHapticked.current = false;
+    },
+    [swipeEnabled]
+  );
+
+  const onTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!swipeEnabled) return;
+      const deltaX = e.touches[0].clientX - touchStartX.current;
+      const deltaY = e.touches[0].clientY - touchStartY.current;
+
+      // Only start swiping if horizontal movement exceeds vertical
+      if (!isSwiping && Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+        setIsSwiping(true);
+      }
+
+      if (isSwiping || Math.abs(deltaX) > Math.abs(deltaY)) {
+        const clamped = Math.max(-100, Math.min(100, deltaX));
+        setSwipeX(clamped);
+
+        // Haptic feedback when crossing threshold
+        if (!hasHapticked.current && (clamped > 60 || clamped < -60)) {
+          triggerHaptic(50);
+          hasHapticked.current = true;
+        }
+        // Reset haptic flag if user swipes back within threshold
+        if (hasHapticked.current && clamped > -60 && clamped < 60) {
+          hasHapticked.current = false;
+        }
+      }
+    },
+    [swipeEnabled, isSwiping]
+  );
+
+  const handleComplete = useCallback(() => {
     updateTask.mutate(
       { id, status: "done" },
       {
         onSuccess: () => {
+          triggerHaptic(50);
           fireConfetti(isLastTask);
           showEncouragement();
           showUndo("Úkol dokončen", () => {
@@ -94,107 +152,188 @@ export function TaskItem({
         },
       }
     );
-  };
+  }, [id, isLastTask, updateTask, fireConfetti, showEncouragement, showUndo, onComplete]);
 
-  const handleMoveToTomorrow = () => {
+  const handleMoveToTomorrow = useCallback(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     updateTask.mutate({ id, status: "scheduled", scheduledDate: tomorrow.toISOString() });
-  };
+  }, [id, updateTask]);
 
-  const handleMoveToBacklog = () => {
+  const handleMoveToBacklog = useCallback(() => {
     updateTask.mutate({ id, status: "backlog", scheduledDate: null });
-  };
+  }, [id, updateTask]);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
+    triggerHaptic(50);
     updateTask.mutate({ id, status: "cancelled" });
     showUndo("Úkol zrušen", () => {
       updateTask.mutate({ id, status: "today" });
     });
-  };
+  }, [id, updateTask, showUndo]);
+
+  const onTouchEnd = useCallback(() => {
+    if (!swipeEnabled) return;
+    if (swipeX > 60) {
+      handleComplete();
+    } else if (swipeX < -60) {
+      setShowSwipeActions(true);
+    }
+    setSwipeX(0);
+    setIsSwiping(false);
+  }, [swipeEnabled, swipeX, handleComplete]);
+
+  useEffect(() => {
+    const handleFocusNav = (e: Event) => {
+      const dir = e.type === "focus-task-prev" ? -1 : 1;
+      const items = Array.from(document.querySelectorAll<HTMLElement>("[data-task-id]"));
+      if (items.length === 0) return;
+      const currentIdx = items.findIndex((el) => el.dataset.taskId === focusedTaskId);
+      const nextIdx = currentIdx === -1 ? 0 : Math.max(0, Math.min(items.length - 1, currentIdx + dir));
+      const nextId = items[nextIdx].dataset.taskId;
+      if (nextId) setFocusedTaskId(nextId);
+    };
+
+    window.addEventListener("focus-task-prev", handleFocusNav);
+    window.addEventListener("focus-task-next", handleFocusNav);
+    return () => {
+      window.removeEventListener("focus-task-prev", handleFocusNav);
+      window.removeEventListener("focus-task-next", handleFocusNav);
+    };
+  }, [focusedTaskId, setFocusedTaskId]);
 
   return (
     <div
+      data-task-id={id}
+      onClick={() => setFocusedTaskId(id)}
       className={cn(
-        "group flex items-center gap-2 px-3 py-2 rounded-md hover:bg-accent/50 transition-colors relative",
+        "group relative overflow-hidden rounded-md",
         isDone && "opacity-50",
-        isCancelled && "opacity-40"
+        isCancelled && "opacity-40",
+        focusedTaskId === id && "ring-2 ring-primary"
       )}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
-      {ageColor && !isDone && (
-        <div className={cn("absolute left-0 top-1 bottom-1 w-0.5 rounded-full", ageColor)} />
+      {/* Swipe background indicators */}
+      {swipeEnabled && swipeX !== 0 && (
+        <>
+          {/* Green background for swipe right (complete) */}
+          {swipeX > 0 && (
+            <div className="absolute inset-0 flex items-center px-4 bg-green-500/20 rounded-md">
+              <Check
+                className={cn(
+                  "h-5 w-5 text-green-600 dark:text-green-400 transition-opacity",
+                  swipeX > 60 ? "opacity-100" : "opacity-50"
+                )}
+              />
+            </div>
+          )}
+          {/* Red background for swipe left (actions) */}
+          {swipeX < 0 && (
+            <div className="absolute inset-0 flex items-center justify-end px-4 bg-red-500/20 rounded-md">
+              <X
+                className={cn(
+                  "h-5 w-5 text-red-600 dark:text-red-400 transition-opacity",
+                  swipeX < -60 ? "opacity-100" : "opacity-50"
+                )}
+              />
+            </div>
+          )}
+        </>
       )}
 
-      <button
-        onClick={isDone ? undefined : handleComplete}
-        className="shrink-0"
-        disabled={isDone || isMigrated || isCancelled}
-      >
-        <SignifierIcon signifier={signifier} />
-      </button>
-
-      <button
-        onClick={() => setTaskDetailId(id)}
+      {/* Main sliding content */}
+      <div
         className={cn(
-          "flex-1 text-left text-sm truncate",
-          isDone && "line-through",
-          isCancelled && "line-through"
+          "flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors relative",
+          !isSwiping && "transition-transform duration-200"
         )}
+        style={{
+          transform: swipeEnabled ? `translateX(${swipeX}px)` : undefined,
+        }}
       >
-        {title}
-      </button>
-
-      <div className="flex items-center gap-1.5 shrink-0">
-        {subtaskCount > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {subtaskDoneCount}/{subtaskCount}
-          </span>
+        {ageColor && !isDone && (
+          <div className={cn("absolute left-0 top-1 bottom-1 w-0.5 rounded-full", ageColor)} />
         )}
 
-        {estimatedMinutes && (
-          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-            <Clock className="w-3 h-3" />~{estimatedMinutes}m
-          </span>
-        )}
+        <button
+          onClick={isDone ? undefined : handleComplete}
+          className="shrink-0"
+          disabled={isDone || isMigrated || isCancelled}
+        >
+          <SignifierIcon signifier={signifier} />
+        </button>
 
-        {deadline && (
-          <span className={cn("text-xs flex items-center gap-0.5", getDeadlineColor(deadline))}>
-            <AlertCircle className="w-3 h-3" />
-            {new Date(deadline).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })}
-          </span>
-        )}
+        <button
+          onClick={() => setTaskDetailId(id)}
+          className={cn(
+            "flex-1 text-left text-sm truncate",
+            isDone && "line-through",
+            isCancelled && "line-through"
+          )}
+        >
+          {title}
+        </button>
 
-        {contextName && (
-          <ContextBadge name={contextName} icon={contextIcon} color={contextColor} />
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {subtaskCount > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {subtaskDoneCount}/{subtaskCount}
+            </span>
+          )}
 
-        {!isDone && !isCancelled && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleComplete}>
-                <Check className="mr-2 h-4 w-4" /> Dokončit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleMoveToTomorrow}>
-                <ArrowRight className="mr-2 h-4 w-4" /> Na zítra
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleMoveToBacklog}>
-                <Archive className="mr-2 h-4 w-4" /> Do backlogu
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleCancel} className="text-destructive">
-                <X className="mr-2 h-4 w-4" /> Zrušit
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+          {estimatedMinutes && (
+            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+              <Clock className="w-3 h-3" />~{estimatedMinutes}m
+            </span>
+          )}
+
+          {deadline && (
+            <span className={cn("text-xs flex items-center gap-0.5", getDeadlineColor(deadline))}>
+              <AlertCircle className="w-3 h-3" />
+              {new Date(deadline).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })}
+            </span>
+          )}
+
+          {contextName && (
+            <ContextBadge name={contextName} icon={contextIcon} color={contextColor} />
+          )}
+
+          {!isDone && !isCancelled && (
+            <DropdownMenu
+              open={showSwipeActions || undefined}
+              onOpenChange={(open) => {
+                if (!open) setShowSwipeActions(false);
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleComplete}>
+                  <Check className="mr-2 h-4 w-4" /> Dokončit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMoveToTomorrow}>
+                  <ArrowRight className="mr-2 h-4 w-4" /> Na zítra
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMoveToBacklog}>
+                  <Archive className="mr-2 h-4 w-4" /> Do backlogu
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCancel} className="text-destructive">
+                  <X className="mr-2 h-4 w-4" /> Zrušit
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     </div>
   );
